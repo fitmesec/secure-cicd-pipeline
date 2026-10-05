@@ -1,55 +1,104 @@
 # Secure CI/CD Pipeline for Python Application
 
-Учебный DevSecOps-проект: FastAPI-веб-приложение с CI-пайплайном в GitHub Actions.
+Учебный DevSecOps-проект: FastAPI-приложение с полноценным Secure CI/CD-пайплайном в GitHub Actions.
 
-Pipeline автоматически запускает тесты, SAST-анализ Bandit, поиск секретов Gitleaks, аудит зависимостей `pip-audit` и сборку Docker-образа при каждом `push` и `pull request`.
+Pipeline автоматически запускает тесты, SAST-анализ Python-кода, поиск секретов, аудит зависимостей, сборку Docker image и сохранение security-отчётов. После успешного `push` в `main` Docker image публикуется в GitHub Container Registry, автоматически развёртывается на staging VPS и проверяется через endpoint `/health`.
 
-Проект демонстрирует интеграцию security-проверок в Secure SDLC по принципу **shift left**: потенциальные проблемы проверяются как можно раньше, до merge изменений в основную ветку.
+Проект демонстрирует принцип **shift left security**: ошибки и security-риски выявляются как можно раньше — до merge изменений в основную ветку и до deployment.
 
 ---
 
 ## Цель проекта
 
-Цель — показать базовый secure CI-процесс для Python-приложения:
+Цель проекта — реализовать воспроизводимый Secure CI/CD-процесс для Python-приложения.
+
+Проект демонстрирует:
 
 - автоматическое тестирование API;
-- статический анализ исходного кода;
-- поиск случайно добавленных секретов;
-- проверка зависимостей на известные уязвимости;
-- воспроизводимая сборка приложения в Docker;
-- сохранение security-отчётов как GitHub Actions artifacts.
+- SAST-анализ Python-кода через Bandit;
+- поиск потенциально раскрытых секретов через Gitleaks;
+- SCA-аудит Python-зависимостей через `pip-audit`;
+- контейнеризацию приложения с Docker;
+- запуск контейнера от непривилегированного пользователя;
+- публикацию Docker image в GitHub Container Registry;
+- автоматический deployment на staging VPS по SSH;
+- Docker health-check и внешний smoke test endpoint `/health`;
+- блокировку pipeline при обнаружении небезопасного кода;
+- хранение security-отчётов как GitHub Actions artifacts.
 
-Главный объект проекта — CI/security pipeline, поэтому само приложение намеренно небольшое.
+Основной фокус проекта — security-процесс, CI/CD и документация. Само приложение намеренно небольшое.
 
 ---
 
-## Архитектура и стек
+## Что реализовано
 
-### Приложение
+- FastAPI API заметок;
+- `GET /health` для проверки доступности приложения;
+- `GET /notes` для получения списка заметок;
+- `POST /notes` для создания заметки с валидацией;
+- 4 автоматических теста через `pytest`;
+- Dockerfile и `.dockerignore`;
+- запуск контейнера от пользователя `appuser`, а не от `root`;
+- GitHub Actions workflow на `push` и Pull Request;
+- Bandit для SAST;
+- Gitleaks для secret scanning;
+- `pip-audit` для Software Composition Analysis;
+- публикация image в GitHub Container Registry;
+- deployment в тестовую staging-среду;
+- Docker Compose на VPS;
+- внешний health-check после deployment;
+- JSON-отчёты security-инструментов как workflow artifacts;
+- отдельная demo-ветка с небезопасным `eval()`, где Bandit блокирует pipeline.
 
-Небольшой API заметок на FastAPI:
+---
 
-| Метод | Endpoint | Назначение |
-|---|---|---|
-| `GET` | `/health` | Проверка доступности приложения |
-| `GET` | `/notes` | Получение заметок из памяти |
-| `POST` | `/notes` | Создание новой заметки с валидацией входных данных |
-
-Заметки хранятся только в памяти процесса. После перезапуска приложения они удаляются. База данных не используется, так как это не входит в scope версии v1.
-
-### Технологии
+## Технологический стек
 
 | Область | Инструмент |
 |---|---|
 | Язык | Python 3.14 |
-| Web framework | FastAPI |
-| ASGI server | Uvicorn |
-| Тесты | pytest |
+| Веб-фреймворк | FastAPI |
+| ASGI-сервер | Uvicorn |
+| Тестирование | pytest |
 | Контейнеризация | Docker |
-| CI | GitHub Actions |
+| Оркестрация на staging VPS | Docker Compose |
+| CI/CD | GitHub Actions |
+| Container registry | GitHub Container Registry |
 | SAST | Bandit |
 | Secret scanning | Gitleaks |
-| SCA | pip-audit |
+| SCA / аудит зависимостей | pip-audit |
+| Deployment | SSH на Linux VPS |
+
+---
+
+## Приложение
+
+Приложение представляет собой небольшой API заметок с хранением данных в памяти процесса.
+
+| Метод | Endpoint | Назначение |
+|---|---|---|
+| `GET` | `/health` | Проверка доступности приложения |
+| `GET` | `/notes` | Получение всех заметок |
+| `POST` | `/notes` | Создание новой заметки |
+
+### Пример создания заметки
+
+```json
+{
+  "content": "Prepare Secure CI/CD documentation."
+}
+```
+
+### Пример успешного ответа
+
+```json
+{
+  "id": 1,
+  "content": "Prepare Secure CI/CD documentation."
+}
+```
+
+Заметки хранятся только в памяти процесса и удаляются после перезапуска приложения. База данных не добавлялась, потому что не входит в scope первой версии проекта.
 
 ---
 
@@ -57,19 +106,26 @@ Pipeline автоматически запускает тесты, SAST-анал
 
 ```text
 secure-cicd-pipeline/
-├── .github/workflows/
-│   └── security-ci.yml
+│
+├── .github/
+│   └── workflows/
+│       └── security-ci.yml
+│
 ├── app/
 │   ├── __init__.py
 │   └── main.py
+│
 ├── tests/
 │   ├── __init__.py
 │   └── test_main.py
+│
 ├── docs/
 │   ├── pipeline-overview.md
 │   ├── security-tools.md
 │   └── screenshots/
+│
 ├── reports/
+│
 ├── .dockerignore
 ├── .env.example
 ├── .gitignore
@@ -82,53 +138,179 @@ secure-cicd-pipeline/
 
 ---
 
-## Что реализовано
+# CI/CD Pipeline
 
-- FastAPI API с endpoint-ами `/health` и `/notes`;
-- валидация входных данных для создания заметки;
-- 4 автоматических теста через `pytest`;
-- Dockerfile с запуском приложения от непривилегированного пользователя `appuser`;
-- `.dockerignore` для исключения локальных и ненужных файлов из Docker image;
-- GitHub Actions workflow, запускаемый на `push` и `pull request` в `main`;
-- SAST-проверка исходного кода через Bandit;
-- поиск секретов через Gitleaks;
-- аудит зависимостей через `pip-audit`;
-- Docker build в CI;
-- JSON-отчёты security-инструментов как GitHub Actions artifact `security-reports`.
+Workflow расположен в файле:
+
+```text
+.github/workflows/security-ci.yml
+```
+
+Он разделён на три job:
+
+1. **Tests, security scans and Docker build** — CI;
+2. **Publish Docker image to GHCR** — публикация образа;
+3. **Deploy to staging VPS** — автоматический deployment и smoke test.
 
 ---
 
-## Pipeline: схема этапов
+## Continuous Integration
+
+CI запускается:
+
+- при каждом `push` в любую ветку;
+- при создании и обновлении Pull Request, направленного в `main`.
+
+### CI flow
 
 ```text
-push / pull request
+Push / Pull Request
         |
         v
-checkout repository
+Checkout repository
         |
         v
-install Python dependencies
+Install Python dependencies
         |
         v
 pytest
         |
         v
-Bandit (SAST)
+Bandit SAST scan
         |
         v
-Gitleaks (secret scanning)
+Gitleaks secret scan
         |
         v
-pip-audit (SCA)
+pip-audit dependency scan
         |
         v
-Docker build
+Docker build validation
         |
         v
-upload security reports artifact
+Upload security reports artifact
 ```
 
-Подробное описание workflow: [docs/pipeline-overview.md](docs/pipeline-overview.md).
+### CI checks
+
+| Проверка | Инструмент | Назначение |
+|---|---|---|
+| Application tests | pytest | Проверка поведения API |
+| Static Application Security Testing | Bandit | Поиск потенциально небезопасных Python-паттернов |
+| Secret scanning | Gitleaks | Поиск токенов, ключей, паролей и других возможных секретов |
+| Software Composition Analysis | pip-audit | Поиск известных уязвимостей в Python-зависимостях |
+| Build validation | Docker | Проверка, что приложение успешно собирается в image |
+| Security reports | GitHub Actions artifacts | Сохранение результатов security-проверок |
+
+---
+
+## Continuous Delivery
+
+Deployment запускается только при выполнении всех условий:
+
+- событие — `push`;
+- ветка — `main`;
+- CI job завершился успешно;
+- Docker image успешно опубликован в GHCR.
+
+Deployment **не выполняется** для Pull Request и feature-веток.
+
+### CD flow
+
+```text
+Successful push to main
+        |
+        v
+Build Docker image
+        |
+        v
+Tag image as latest and sha-<commit-sha>
+        |
+        v
+Push image to GitHub Container Registry
+        |
+        v
+Connect to staging VPS over SSH
+        |
+        v
+Pull exact SHA-tagged image
+        |
+        v
+Restart application through Docker Compose
+        |
+        v
+Docker health-check
+        |
+        v
+External smoke test: GET /health
+```
+
+### Логика deployment
+
+После успешного CI GitHub Actions:
+
+1. собирает Docker image;
+2. публикует image в GitHub Container Registry;
+3. создаёт теги:
+   - `latest`;
+   - `sha-<full-commit-sha>`;
+4. подключается к staging VPS по SSH как отдельный пользователь `deploy`;
+5. выполняет `docker compose pull`;
+6. запускает новую версию приложения через `docker compose up -d`;
+7. проверяет состояние контейнера;
+8. выполняет внешний smoke test:
+
+```text
+GET http://<VPS_IP>:8000/health
+```
+
+Если deployment или smoke test завершается ошибкой, GitHub Actions workflow становится красным.
+
+---
+
+## Deployment architecture
+
+```text
+GitHub repository
+        |
+        v
+GitHub Actions
+        |
+        ├── pytest
+        ├── Bandit
+        ├── Gitleaks
+        ├── pip-audit
+        └── Docker build
+        |
+        v
+GitHub Container Registry
+        |
+        v
+Staging Linux VPS
+        |
+        v
+Docker Compose
+        |
+        v
+FastAPI container
+        |
+        v
+GET /health
+```
+
+### Staging environment
+
+Тестовая среда включает:
+
+- Linux VPS;
+- Docker Engine;
+- Docker Compose;
+- отдельного пользователя `deploy`;
+- SSH-доступ по ключу;
+- Docker image из GitHub Container Registry;
+- доступ к приложению через порт `8000`;
+- Docker health-check;
+- внешний smoke test после deployment.
 
 ---
 
@@ -136,42 +318,49 @@ upload security reports artifact
 
 ### SAST: Bandit
 
-**Bandit** выполняет Static Application Security Testing (SAST): анализирует Python-исходники без запуска приложения.
+Bandit выполняет **Static Application Security Testing**: анализирует Python-исходники без запуска приложения.
 
 Инструмент ищет потенциально опасные паттерны, например:
 
-- использование `eval()` и похожих небезопасных конструкций;
+- `eval()` и похожие динамические вызовы;
 - небезопасную десериализацию;
 - рискованное использование `subprocess`;
-- временные или слабые криптографические решения;
-- другие типовые проблемы Python-кода.
+- слабые криптографические алгоритмы;
+- потенциально захардкоженные пароли;
+- другие известные Python security anti-patterns.
 
-Важно: находка SAST — это повод исследовать контекст, а не автоматическое доказательство эксплуатируемой уязвимости.
+Находка SAST не всегда означает автоматически эксплуатируемую уязвимость. Результат необходимо оценивать в контексте: контролируется ли входное значение пользователем, существует ли путь эксплуатации и какие компенсирующие меры уже применены.
+
+---
 
 ### Secret scanning: Gitleaks
 
-**Gitleaks** проверяет файлы и Git-историю на возможные секреты:
+Gitleaks проверяет файлы проекта и Git-историю на наличие возможных секретов:
 
-- API-ключи;
-- токены;
-- пароли;
-- приватные ключи;
+- API keys;
+- access tokens;
+- passwords;
+- private keys;
 - cloud credentials;
-- другие чувствительные значения.
+- других чувствительных значений, соответствующих известным шаблонам.
 
-Файл `.gitignore` уменьшает риск случайного добавления `.env`, но не заменяет secret scanning. Если рабочий секрет уже попал в Git-историю, удаления файла недостаточно: секрет необходимо отозвать или заменить.
+`.gitignore` снижает риск случайной публикации `.env`, но не заменяет secret scanning.
+
+Если настоящий секрет попал в Git-историю, его недостаточно удалить из последнего commit. Секрет необходимо считать скомпрометированным, отозвать или ротировать у провайдера, а новое значение перенести в безопасное хранилище.
+
+---
 
 ### SCA: pip-audit
 
-**pip-audit** выполняет Software Composition Analysis (SCA): проверяет зависимости из `requirements.txt` и их транзитивные зависимости на известные уязвимости.
+`pip-audit` выполняет **Software Composition Analysis**: проверяет прямые и транзитивные зависимости Python на известные vulnerability advisory.
 
-Разница между проверками:
-
-| Категория | Что анализирует |
+| Категория | Что анализируется |
 |---|---|
-| SAST / Bandit | Собственный исходный код приложения |
+| SAST / Bandit | Собственный Python-код |
 | Secret scanning / Gitleaks | Возможные секреты в файлах и Git-истории |
 | SCA / pip-audit | Сторонние библиотеки и зависимости |
+
+Наличие CVE в библиотеке не означает, что она автоматически эксплуатируема в конкретном приложении. Необходима проверка контекста: используется ли уязвимая функция, доступна ли она извне и есть ли компенсирующие меры.
 
 Подробнее: [docs/security-tools.md](docs/security-tools.md).
 
@@ -179,43 +368,51 @@ upload security reports artifact
 
 ## Политика блокировки pipeline
 
-В учебной версии проекта применяется строгая политика: если обязательная проверка завершается ошибкой, workflow становится красным и изменения не должны быть merged до исправления или ручного триажа.
+Для учебного проекта используется строгая политика: если обязательная проверка завершается ошибкой, pipeline становится красным, а изменение не должно быть merged в `main` до исправления или ручного security-триажа.
 
-| Проверка | Что ищет | Когда блокирует pipeline | Действие разработчика |
-|---|---|---|---|
-| `pytest` | Регрессии и ошибки поведения | Любой упавший тест | Исправить код или тест |
-| Bandit | Рискованные Python-паттерны | Любая находка по текущей конфигурации | Проверить контекст, исправить код или документировать false positive |
-| Gitleaks | Секреты в файлах и Git-истории | Любая находка | Удалить секрет, отозвать/ротировать его, перенести значение в GitHub Secrets |
-| `pip-audit` | Уязвимые зависимости | Найденная известная уязвимость | Обновить зависимость, проверить совместимость, повторно запустить тесты |
-| Docker build | Возможность собрать приложение | Ошибка сборки образа | Исправить Dockerfile, зависимости или build context |
+| Проверка | Когда блокирует pipeline | Действие разработчика |
+|---|---|---|
+| `pytest` | Упал хотя бы один тест | Исправить код или тест |
+| Bandit | Найдена проблема согласно текущей конфигурации | Проверить контекст, исправить код или документировать false positive |
+| Gitleaks | Найден потенциальный секрет | Удалить и ротировать секрет, перенести значение в безопасное хранилище |
+| `pip-audit` | Найдена известная уязвимость зависимости | Обновить зависимость и проверить совместимость |
+| Docker build | Image не собирается | Исправить Dockerfile, зависимости или build context |
+| GHCR publish | Image не публикуется | Проверить права workflow и настройки registry |
+| Deployment | VPS не обновляет контейнер | Проверить SSH, Docker Compose, registry access и логи контейнера |
+| Smoke test | `/health` недоступен или возвращает ошибку | Проверить сеть, container health и application logs |
 
-В реальной production-команде пороги блокировки, исключения и сроки исправления зависят от CVSS, эксплуатируемости, критичности сервиса и контекста. Здесь политика намеренно строгая, чтобы продемонстрировать shift left.
+В production-среде severity thresholds, сроки исправления и процесс исключений зависят от критичности сервиса, CVSS, эксплуатируемости и утверждённого risk acceptance process. В этом проекте политика намеренно строгая, чтобы продемонстрировать shift left.
 
 ---
 
 ## Локальный запуск
 
-### 1. Создать и активировать виртуальное окружение
+### 1. Создать виртуальное окружение
 
 ```bash
 python3 -m venv .venv
+```
+
+### 2. Активировать его
+
+```bash
 source .venv/bin/activate
 ```
 
-### 2. Установить зависимости
+### 3. Установить зависимости
 
 ```bash
 python -m pip install --upgrade pip
 python -m pip install -r requirements-dev.txt
 ```
 
-### 3. Запустить приложение
+### 4. Запустить приложение
 
 ```bash
 python -m uvicorn app.main:app --reload
 ```
 
-После запуска API доступно по адресам:
+Приложение будет доступно по адресам:
 
 ```text
 http://127.0.0.1:8000/health
@@ -236,7 +433,7 @@ http://127.0.0.1:8000/docs
 
 ## Запуск через Docker
 
-### Собрать Docker image
+### Собрать image
 
 ```bash
 docker build --tag secure-cicd-pipeline:local .
@@ -248,13 +445,15 @@ docker build --tag secure-cicd-pipeline:local .
 docker run --rm --name secure-cicd-api -p 8000:8000 secure-cicd-pipeline:local
 ```
 
-Проверить API:
+### Проверить endpoint
+
+В отдельном окне Terminal:
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
 
-Проверить пользователя внутри контейнера:
+### Проверить пользователя контейнера
 
 ```bash
 docker exec secure-cicd-api whoami
@@ -266,13 +465,13 @@ docker exec secure-cicd-api whoami
 appuser
 ```
 
-Контейнер запускается не от `root`, а от отдельного непривилегированного пользователя.
+Контейнер запускает приложение от непривилегированного пользователя, а не от `root`.
 
 ---
 
-## Запуск проверок локально
+## Локальный запуск проверок
 
-### Tests
+### pytest
 
 ```bash
 python -m pytest -v
@@ -287,7 +486,7 @@ python -m bandit -r app -f json -o reports/bandit-report.json
 ### Gitleaks
 
 ```bash
-gitleaks detect --source . --no-git --report-format json --report-path reports/gitleaks-report.json
+gitleaks detect --source . --report-format json --report-path reports/gitleaks-report.json
 ```
 
 ### pip-audit
@@ -296,36 +495,126 @@ gitleaks detect --source . --no-git --report-format json --report-path reports/g
 python -m pip_audit -r requirements.txt -f json -o reports/pip-audit-report.json
 ```
 
-Каталог `reports/` не хранит результаты в Git. В CI эти отчёты создаются заново и публикуются как GitHub Actions artifact `security-reports`.
+Каталог `reports/` исключён из Git. В CI отчёты генерируются заново при каждом запуске и загружаются как artifact `security-reports`.
 
 ---
 
-## Примеры результатов
+# Evidence
 
-### Локальный Docker-запуск
+## Локальный Docker-запуск
 
 ![Docker health endpoint](docs/screenshots/docker-health.png)
 
-### Успешный GitHub Actions workflow
+---
 
-![Successful GitHub Actions workflow](docs/screenshots/ci-success.png)
+## Успешный CI workflow
 
-### Все этапы CI успешно выполнены
-
-![Successful CI steps](docs/screenshots/ci-steps-success.png)
-
-### Содержимое artifact с security-отчётами
-
-![Security reports artifact contents](docs/screenshots/ci-artifact-contents.png)
+![Successful CI workflow](docs/screenshots/ci-success.png)
 
 ---
 
-## Демонстрация блокировки pipeline
+## Успешное выполнение CI-этапов
 
-Для проверки политики блокировки создана отдельная учебная ветка:
+![Successful CI stages](docs/screenshots/ci-steps-success.png)
+
+---
+
+## Security reports artifact
+
+Artifact `security-reports` содержит:
+
+```text
+bandit-report.json
+gitleaks-report.json
+pip-audit-report.json
+```
+
+![Security report artifact contents](docs/screenshots/ci-artifact-contents.png)
+
+---
+
+## Демонстрация блокировки Bandit
+
+Для демонстрации политики блокировки была создана отдельная учебная ветка:
 
 ```text
 demo/bandit-failure
+```
+
+В этой ветке был добавлен изолированный учебный пример с использованием `eval()`.
+
+Bandit обнаружил потенциально небезопасный паттерн и завершил шаг **Run Bandit SAST scan** с ошибкой. В результате workflow стал красным, а дальнейшие этапы pipeline не были выполнены.
+
+Это доказывает, что security scanning в проекте не является только информационным: находка действительно блокирует pipeline.
+
+![Bandit failure demonstration](docs/screenshots/ci-bandit-failure.png)
+
+Небезопасный demo-файл не был merged в `main`.
+
+---
+
+## Успешный Secure CI/CD workflow
+
+На скриншоте видны все три успешных job:
+
+1. CI: tests, security scans and Docker build;
+2. Publish Docker image to GHCR;
+3. Deploy to staging VPS.
+
+![Successful Secure CI/CD workflow](docs/screenshots/cd-success.png)
+
+---
+
+## Docker image в GitHub Container Registry
+
+После успешного CI image публикуется в GitHub Container Registry с двумя тегами:
+
+```text
+latest
+sha-<commit-sha>
+```
+
+SHA-тег позволяет точно определить, какая версия исходного кода была развёрнута на staging VPS.
+
+![GHCR image tags](docs/screenshots/ghcr-image-tags.png)
+
+---
+
+## Staging deployment health check
+
+После deployment приложение доступно на staging VPS и возвращает:
+
+```json
+{
+  "status": "ok",
+  "environment": "staging",
+  "log_level": "INFO"
+}
+```
+
+![Staging health endpoint](docs/screenshots/staging-health.png)
+
+---
+
+## Artifacts
+
+После запуска CI workflow доступны скачиваемые security-отчёты под именем:
+
+```text
+security-reports
+```
+
+При успешном запуске artifact содержит:
+
+```text
+bandit-report.json
+gitleaks-report.json
+pip-audit-report.json
+```
+
+Если workflow остановился на раннем security-этапе, artifact может содержать только отчёты, которые успели сформироваться до остановки pipeline.
+
+---
 
 ## Ограничения проекта
 
@@ -333,38 +622,53 @@ demo/bandit-failure
 
 В текущую версию не входят:
 
-- централизованное хранилище секретов;
-- подпись Docker-образов;
-- сканирование контейнерных образов;
+- production deployment;
+- автоматический rollback на предыдущий SHA-tag;
+- blue-green или canary deployment;
+- reverse proxy;
+- TLS и доменное имя;
+- централизованное логирование;
+- мониторинг и alerting;
+- сканирование Docker image на уязвимости;
 - DAST-проверки;
-- deployment в Kubernetes;
-- база данных;
-- управление исключениями через security ticketing system;
 - SBOM;
-- branch protection rules;
-- CD и автоматический deployment.
+- Dependabot;
+- GitHub branch protection rules;
+- Kubernetes;
+- Infrastructure as Code;
+- policy as code;
+- формальный процесс обработки security-исключений.
 
-Bandit, Gitleaks и `pip-audit` автоматизируют поиск типовых проблем, но не заменяют ручной code review, threat modeling, оценку архитектурных рисков и контекстный анализ security-находок.
+Bandit, Gitleaks и `pip-audit` автоматизируют поиск типовых рисков, но не заменяют ручной code review, threat modeling, архитектурный review и контекстный анализ находок.
 
 ---
 
 ## Дальнейшее развитие
 
-Возможные следующие шаги развития проекта:
+### Безопасность контейнеров и приложения
 
 - добавить сканирование Docker image через Trivy;
-- добавить DAST-проверку через OWASP ZAP для тестового контейнера;
-- запускать DAST отдельным job после Docker build;
-- добавить Software Bill of Materials (SBOM);
-- подключить Dependabot;
+- добавить DAST через OWASP ZAP после запуска тестового контейнера;
+- генерировать Software Bill of Materials;
+- добавить подпись Docker image и provenance.
+
+### Надёжность delivery
+
+- добавить автоматический rollback на предыдущий SHA-tag image;
+- реализовать blue-green или canary deployment;
+- добавить reverse proxy и TLS;
+- добавить monitoring, uptime checks и alerting.
+
+### Инфраструктура и governance
+
 - настроить GitHub branch protection rules;
-- использовать GitHub Secrets для секретов CI/CD;
-- публиковать Docker image в GitHub Container Registry;
-- добавить IaC и deployment-окружение;
-- внедрить policy as code.
+- подключить Dependabot;
+- добавить Infrastructure as Code;
+- внедрить policy as code;
+- добавить управление security-исключениями через ticketing system.
 
 ---
 
-## Security
+## Security policy
 
-Правила ответственного сообщения о потенциальных проблемах описаны в [SECURITY.md](SECURITY.md).
+Правила ответственного сообщения о security-проблемах и обработки случайно раскрытых секретов описаны в [SECURITY.md](SECURITY.md).
