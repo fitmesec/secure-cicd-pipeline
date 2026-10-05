@@ -1,4 +1,4 @@
-name: Security CI
+name: Secure CI/CD
 
 on:
   push:
@@ -10,9 +10,10 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
-  security-ci:
+  ci:
     name: Tests, security scans and Docker build
     runs-on: ubuntu-latest
 
@@ -46,10 +47,11 @@ jobs:
         run: |
           python -m bandit -r app -f json -o reports/bandit-report.json
 
-      - name: Install Gitleaks
+      - name: Set up Go for Gitleaks
         uses: actions/setup-go@v5
         with:
           go-version: "stable"
+          cache: false
 
       - name: Run Gitleaks secret scan
         run: |
@@ -68,7 +70,10 @@ jobs:
             -o reports/pip-audit-report.json
 
       - name: Build Docker image
-        run: docker build --tag secure-cicd-pipeline:${{ github.sha }} .
+        run: |
+          docker build \
+            --tag secure-cicd-pipeline:${{ github.sha }} \
+            .
 
       - name: Upload security reports
         if: always()
@@ -78,3 +83,89 @@ jobs:
           path: reports/
           if-no-files-found: warn
           retention-days: 14
+
+  publish-image:
+    name: Publish Docker image to GHCR
+    needs: ci
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/fitmesec/secure-cicd-pipeline:latest
+            ghcr.io/fitmesec/secure-cicd-pipeline:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  deploy:
+    name: Deploy to staging VPS
+    needs: publish-image
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Configure SSH key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/secure_cicd_deploy
+          chmod 600 ~/.ssh/secure_cicd_deploy
+
+      - name: Add VPS host key
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Pull image and restart application
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          IMAGE_TAG: sha-${{ github.sha }}
+        run: |
+          printf '%s' "$GHCR_PULL_TOKEN" | ssh \
+            -i ~/.ssh/secure_cicd_deploy \
+            -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd /opt/secure-cicd-pipeline && \
+             docker login ghcr.io -u '$GHCR_USERNAME' --password-stdin && \
+             IMAGE_TAG='$IMAGE_TAG' docker compose pull && \
+             IMAGE_TAG='$IMAGE_TAG' docker compose up -d --remove-orphans && \
+             docker compose ps"
+
+      - name: Run external smoke test
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          curl \
+            --fail \
+            --show-error \
+            --silent \
+            --retry 5 \
+            --retry-delay 5 \
+            "http://$DEPLOY_HOST:8000/health"
