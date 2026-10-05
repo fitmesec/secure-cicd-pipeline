@@ -205,12 +205,25 @@ Upload security reports artifact
 
 Deployment запускается только при выполнении всех условий:
 
+> **Текущий статус staging deployment:** CD-конфигурация реализована и была успешно проверена: Docker image публиковался в GitHub Container Registry, развёртывался на staging VPS, проходил Docker health-check и внешний smoke test `/health`.
+>
+> Временная staging-инфраструктура отключена после завершения тестирования. Поэтому repository variable `DEPLOY_ENABLED` сейчас установлена в значение `false`: CI-проверки продолжают выполняться, а jobs публикации image и deployment пропускаются.
+>
+> Для повторного включения CD необходимо подготовить staging VPS, обновить GitHub Actions Secrets для новой среды и изменить `DEPLOY_ENABLED` на `true`.
+
+
 - событие — `push`;
 - ветка — `main`;
 - CI job завершился успешно;
 - Docker image успешно опубликован в GitHub Container Registry.
 
 Deployment **не выполняется** для Pull Request и feature-веток.
+
+> **Текущий статус staging deployment:** CD-конфигурация реализована и была успешно проверена: Docker image публиковался в GitHub Container Registry, развёртывался на staging VPS, проходил Docker health-check и внешний smoke test `/health`.
+>
+> Временная staging-инфраструктура отключена после завершения тестирования. Поэтому repository variable `DEPLOY_ENABLED` сейчас установлена в значение `false`: CI-проверки продолжают выполняться, а jobs публикации image и deployment пропускаются.
+>
+> Для повторного включения CD необходимо подготовить staging VPS, обновить GitHub Actions Secrets для новой среды и изменить `DEPLOY_ENABLED` на `true`.
 
 #### CD flow
 
