@@ -155,7 +155,7 @@ jobs:
             "cd /opt/secure-cicd-pipeline && \
              docker login ghcr.io -u '$GHCR_USERNAME' --password-stdin && \
              IMAGE_TAG='$IMAGE_TAG' docker compose pull && \
-             IMAGE_TAG='$IMAGE_TAG' docker compose up -d --remove-orphans && \
+             IMAGE_TAG='$IMAGE_TAG' docker compose up -d --wait --remove-orphans && \
              docker compose ps"
 
       - name: Run external smoke test
