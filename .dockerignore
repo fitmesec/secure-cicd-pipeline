@@ -1,0 +1,29 @@
+# Git data and GitHub configuration
+.git/
+.github/
+
+# Local Python environment and cache
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local environment variables and secrets
+.env
+.env.*
+
+# Generated files
+reports/
+docs/screenshots/
+
+# Editor and macOS files
+.vscode/
+.idea/
+.DS_Store
+
+# Files not needed to run the application
+tests/
+docs/
+README.md
+SECURITY.md
+requirements-dev.txt

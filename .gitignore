@@ -1,0 +1,34 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+htmlcov/
+.coverage.*
+
+# Security scan reports
+reports/*
+!reports/.gitkeep
+
+# Editor and operating system files
+.vscode/
+.idea/
+.DS_Store
+
+# Build output
+build/
+dist/
+*.egg-info/
