@@ -1,10 +1,10 @@
 # Secure CI/CD Pipeline for Python Application
 
-Учебный DevSecOps-проект: FastAPI-приложение с полноценным Secure CI/CD-пайплайном в GitHub Actions.
+Учебный DevSecOps-проект: FastAPI-приложение с Secure CI/CD-пайплайном в GitHub Actions.
 
-Pipeline автоматически запускает тесты, SAST-анализ Python-кода, поиск секретов, аудит зависимостей, сборку Docker image и сохранение security-отчётов. После успешного `push` в `main` Docker image публикуется в GitHub Container Registry, автоматически развёртывается на staging VPS и проверяется через endpoint `/health`.
+Pipeline выполняет автоматические тесты, SAST-анализ Python-кода, поиск секретов, аудит зависимостей, Docker build и сохранение security-отчётов при каждом `push` и Pull Request. После успешного `push` в ветку `main` Docker image публикуется в GitHub Container Registry, автоматически развёртывается на staging VPS и проверяется через endpoint `/health`.
 
-Проект демонстрирует принцип **shift left security**: ошибки и security-риски выявляются как можно раньше — до merge изменений в основную ветку и до deployment.
+Проект демонстрирует принцип **shift left security**: ошибки и security-риски выявляются на ранних этапах разработки — до merge в основную ветку и до deployment.
 
 ---
 
@@ -24,7 +24,7 @@ Pipeline автоматически запускает тесты, SAST-анал
 - автоматический deployment на staging VPS по SSH;
 - Docker health-check и внешний smoke test endpoint `/health`;
 - блокировку pipeline при обнаружении небезопасного кода;
-- хранение security-отчётов как GitHub Actions artifacts.
+- сохранение security-отчётов как GitHub Actions artifacts.
 
 Основной фокус проекта — security-процесс, CI/CD и документация. Само приложение намеренно небольшое.
 
@@ -43,9 +43,10 @@ Pipeline автоматически запускает тесты, SAST-анал
 - Bandit для SAST;
 - Gitleaks для secret scanning;
 - `pip-audit` для Software Composition Analysis;
-- публикация image в GitHub Container Registry;
-- deployment в тестовую staging-среду;
+- публикация Docker image в GitHub Container Registry;
+- deployment в изолированную staging-среду;
 - Docker Compose на VPS;
+- Docker health-check;
 - внешний health-check после deployment;
 - JSON-отчёты security-инструментов как workflow artifacts;
 - отдельная demo-ветка с небезопасным `eval()`, где Bandit блокирует pipeline.
@@ -63,7 +64,7 @@ Pipeline автоматически запускает тесты, SAST-анал
 | Контейнеризация | Docker |
 | Оркестрация на staging VPS | Docker Compose |
 | CI/CD | GitHub Actions |
-| Container registry | GitHub Container Registry |
+| Container Registry | GitHub Container Registry |
 | SAST | Bandit |
 | Secret scanning | Gitleaks |
 | SCA / аудит зависимостей | pip-audit |
@@ -138,7 +139,7 @@ secure-cicd-pipeline/
 
 ---
 
-# CI/CD Pipeline
+## CI/CD Pipeline
 
 Workflow расположен в файле:
 
@@ -146,22 +147,20 @@ Workflow расположен в файле:
 .github/workflows/security-ci.yml
 ```
 
-Он разделён на три job:
+Он состоит из трёх job:
 
-1. **Tests, security scans and Docker build** — CI;
-2. **Publish Docker image to GHCR** — публикация образа;
-3. **Deploy to staging VPS** — автоматический deployment и smoke test.
+1. **Tests, security scans and Docker build** — Continuous Integration;
+2. **Publish Docker image to GHCR** — публикация Docker image;
+3. **Deploy to staging VPS** — автоматический deployment и post-deployment smoke test.
 
----
-
-## Continuous Integration
+### Continuous Integration
 
 CI запускается:
 
 - при каждом `push` в любую ветку;
 - при создании и обновлении Pull Request, направленного в `main`.
 
-### CI flow
+#### CI flow
 
 ```text
 Push / Pull Request
@@ -191,7 +190,7 @@ Docker build validation
 Upload security reports artifact
 ```
 
-### CI checks
+#### CI checks
 
 | Проверка | Инструмент | Назначение |
 |---|---|---|
@@ -199,32 +198,27 @@ Upload security reports artifact
 | Static Application Security Testing | Bandit | Поиск потенциально небезопасных Python-паттернов |
 | Secret scanning | Gitleaks | Поиск токенов, ключей, паролей и других возможных секретов |
 | Software Composition Analysis | pip-audit | Поиск известных уязвимостей в Python-зависимостях |
-| Build validation | Docker | Проверка, что приложение успешно собирается в image |
+| Build validation | Docker | Проверка Dockerfile и воспроизводимой сборки image |
 | Security reports | GitHub Actions artifacts | Сохранение результатов security-проверок |
 
----
-
-## Continuous Delivery
+### Continuous Delivery
 
 Deployment запускается только при выполнении всех условий:
 
 - событие — `push`;
 - ветка — `main`;
 - CI job завершился успешно;
-- Docker image успешно опубликован в GHCR.
+- Docker image успешно опубликован в GitHub Container Registry.
 
 Deployment **не выполняется** для Pull Request и feature-веток.
 
-### CD flow
+#### CD flow
 
 ```text
 Successful push to main
         |
         v
-Build Docker image
-        |
-        v
-Tag image as latest and sha-<commit-sha>
+Build and tag Docker image
         |
         v
 Push image to GitHub Container Registry
@@ -239,13 +233,15 @@ Pull exact SHA-tagged image
 Restart application through Docker Compose
         |
         v
-Docker health-check
+Wait for Docker health-check
         |
         v
 External smoke test: GET /health
 ```
 
-### Логика deployment
+> В CI Docker image собирается только как build validation: проверяется Dockerfile и возможность воспроизводимой сборки, но image не публикуется. После успешного CI отдельный job повторно собирает image, присваивает version tags и публикует его в GitHub Container Registry.
+
+#### Логика deployment
 
 После успешного CI GitHub Actions:
 
@@ -255,14 +251,23 @@ External smoke test: GET /health
    - `latest`;
    - `sha-<full-commit-sha>`;
 4. подключается к staging VPS по SSH как отдельный пользователь `deploy`;
-5. выполняет `docker compose pull`;
-6. запускает новую версию приложения через `docker compose up -d`;
-7. проверяет состояние контейнера;
-8. выполняет внешний smoke test:
+5. передаёт на staging VPS переменную `IMAGE_TAG` со значением `sha-<full-commit-sha>`;
+6. выполняет `docker compose pull`;
+7. запускает новую версию приложения через Docker Compose;
+8. ожидает успешного Docker health-check;
+9. выполняет внешний smoke test endpoint `/health`.
 
-```text
-GET http://<VPS_IP>:8000/health
+На staging VPS Docker Compose использует переменную `IMAGE_TAG`, которую deployment-job передаёт со значением `sha-<full-commit-sha>`. Это гарантирует, что развёртывается Docker image, соответствующий конкретному commit, а не только актуальный тег `latest`.
+
+При запуске используется команда:
+
+```bash
+docker compose up -d --wait --remove-orphans
 ```
+
+Параметр `--wait` заставляет Docker Compose дождаться, пока контейнер пройдёт настроенный Docker health-check и получит статус `healthy`.
+
+После этого GitHub Actions выполняет внешний smoke test командой `curl --fail` с несколькими повторными попытками. Повторы дают контейнеру дополнительное время на запуск и делают workflow красным, если endpoint `/health` недоступен или возвращает HTTP-ошибку.
 
 Если deployment или smoke test завершается ошибкой, GitHub Actions workflow становится красным.
 
@@ -310,7 +315,10 @@ GET /health
 - Docker image из GitHub Container Registry;
 - доступ к приложению через порт `8000`;
 - Docker health-check;
-- внешний smoke test после deployment.
+- внешний smoke test после deployment;
+- отдельно настроенный доступ VPS к container registry.
+
+При использовании приватного Docker image требуется аутентификация с правом чтения пакетов. Значения токенов, SSH-ключей и других secrets не хранятся в репозитории и передаются через GitHub Actions Secrets.
 
 ---
 
@@ -331,8 +339,6 @@ Bandit выполняет **Static Application Security Testing**: анализ�
 
 Находка SAST не всегда означает автоматически эксплуатируемую уязвимость. Результат необходимо оценивать в контексте: контролируется ли входное значение пользователем, существует ли путь эксплуатации и какие компенсирующие меры уже применены.
 
----
-
 ### Secret scanning: Gitleaks
 
 Gitleaks проверяет файлы проекта и Git-историю на наличие возможных секретов:
@@ -344,11 +350,11 @@ Gitleaks проверяет файлы проекта и Git-историю на
 - cloud credentials;
 - других чувствительных значений, соответствующих известным шаблонам.
 
+В CI используется fetch-depth: 0; Gitleaks запускается в Git-репозитории без --no-git, поэтому может анализировать как рабочее дерево, так и доступную Git-историю.
+
 `.gitignore` снижает риск случайной публикации `.env`, но не заменяет secret scanning.
 
 Если настоящий секрет попал в Git-историю, его недостаточно удалить из последнего commit. Секрет необходимо считать скомпрометированным, отозвать или ротировать у провайдера, а новое значение перенести в безопасное хранилище.
-
----
 
 ### SCA: pip-audit
 
@@ -381,7 +387,9 @@ Gitleaks проверяет файлы проекта и Git-историю на
 | Deployment | VPS не обновляет контейнер | Проверить SSH, Docker Compose, registry access и логи контейнера |
 | Smoke test | `/health` недоступен или возвращает ошибку | Проверить сеть, container health и application logs |
 
-В production-среде severity thresholds, сроки исправления и процесс исключений зависят от критичности сервиса, CVSS, эксплуатируемости и утверждённого risk acceptance process. В этом проекте политика намеренно строгая, чтобы продемонстрировать shift left.
+Если security-находка признана false positive, её обоснование фиксируется в Pull Request или issue. Suppression через настройки инструмента либо комментарии в коде допустимы только вместе с пояснением причины и после контекстной проверки, а не только ради зелёного workflow.
+
+В production-среде severity thresholds, сроки исправления и процесс исключений зависят от критичности сервиса, CVSS, эксплуатируемости и утверждённого процесса управления рисками. В этом проекте политика намеренно строгая, чтобы продемонстрировать shift left.
 
 ---
 
@@ -489,6 +497,8 @@ python -m bandit -r app -f json -o reports/bandit-report.json
 gitleaks detect --source . --report-format json --report-path reports/gitleaks-report.json
 ```
 
+При запуске внутри Git-репозитория Gitleaks анализирует потенциальные секреты в рабочем дереве и Git-истории. В CI полная история доступна благодаря `fetch-depth: 0`.
+
 ### pip-audit
 
 ```bash
@@ -499,27 +509,27 @@ python -m pip_audit -r requirements.txt -f json -o reports/pip-audit-report.json
 
 ---
 
-# Evidence
+## Evidence
 
-## Локальный Docker-запуск
+### Локальный Docker-запуск
 
 ![Docker health endpoint](docs/screenshots/docker-health.png)
 
 ---
 
-## Успешный CI workflow
+### Успешный CI workflow
 
 ![Successful CI workflow](docs/screenshots/ci-success.png)
 
 ---
 
-## Успешное выполнение CI-этапов
+### Успешное выполнение CI-этапов
 
 ![Successful CI stages](docs/screenshots/ci-steps-success.png)
 
 ---
 
-## Security reports artifact
+### Security reports artifact
 
 Artifact `security-reports` содержит:
 
@@ -533,7 +543,7 @@ pip-audit-report.json
 
 ---
 
-## Демонстрация блокировки Bandit
+### Демонстрация блокировки Bandit
 
 Для демонстрации политики блокировки была создана отдельная учебная ветка:
 
@@ -553,7 +563,7 @@ Bandit обнаружил потенциально небезопасный па
 
 ---
 
-## Успешный Secure CI/CD workflow
+### Успешный Secure CI/CD workflow
 
 На скриншоте видны все три успешных job:
 
@@ -565,13 +575,13 @@ Bandit обнаружил потенциально небезопасный па
 
 ---
 
-## Docker image в GitHub Container Registry
+### Docker image в GitHub Container Registry
 
 После успешного CI image публикуется в GitHub Container Registry с двумя тегами:
 
 ```text
 latest
-sha-<commit-sha>
+sha-<full-commit-sha>
 ```
 
 SHA-тег позволяет точно определить, какая версия исходного кода была развёрнута на staging VPS.
@@ -580,7 +590,7 @@ SHA-тег позволяет точно определить, какая вер
 
 ---
 
-## Staging deployment health check
+### Staging deployment health check
 
 После deployment приложение доступно на staging VPS и возвращает:
 
@@ -598,7 +608,7 @@ SHA-тег позволяет точно определить, какая вер
 
 ## Artifacts
 
-После запуска CI workflow доступны скачиваемые security-отчёты под именем:
+После выполнения CI job доступны скачиваемые security-отчёты в artifact:
 
 ```text
 security-reports
@@ -619,6 +629,8 @@ pip-audit-report.json
 ## Ограничения проекта
 
 Проект реализован как учебный пример и не является production-ready шаблоном.
+
+Deployment выполняется только в изолированную staging-среду и не предназначен для production-развёртывания.
 
 В текущую версию не входят:
 
