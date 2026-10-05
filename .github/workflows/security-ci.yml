@@ -88,7 +88,7 @@ jobs:
     name: Publish Docker image to GHCR
     needs: ci
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
 
     permissions:
       contents: read
@@ -121,7 +121,7 @@ jobs:
     name: Deploy to staging VPS
     needs: publish-image
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
 
     steps:
       - name: Configure SSH key
