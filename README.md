@@ -320,6 +320,13 @@ python -m pip_audit -r requirements.txt -f json -o reports/pip-audit-report.json
 
 ---
 
+## Демонстрация блокировки pipeline
+
+Для проверки политики блокировки создана отдельная учебная ветка:
+
+```text
+demo/bandit-failure
+
 ## Ограничения проекта
 
 Проект реализован как учебный пример и не является production-ready шаблоном.
